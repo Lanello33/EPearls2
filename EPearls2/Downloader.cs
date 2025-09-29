@@ -1,9 +1,4 @@
 ﻿using HtmlAgilityPack;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace EPearls2;
 
@@ -21,22 +16,66 @@ internal class Downloader
         {
             var yearUrl = string.Format(UrlPattern, year);
             var html = new HttpClient().GetStringAsync(yearUrl).Result;
-            var epearls = GetEpearls(html);
-            foreach (var epearl in epearls)
+            var urlTitles = GetUrlTitles(html);
+            foreach (var urlTitle in urlTitles)
             {
-                Console.WriteLine(epearl); //– &#8211;
+                var epearl = FromUrlTitle(urlTitle);
+                Console.WriteLine(epearl);
             }
         }
     }
 
+    record Epearl(DateOnly Date, string Author, string Title, string Url);
 
+    static Epearl FromUrlTitle(UrlTitle urlTitle)
+    {
+        //1-1-2011 Gautama Buddha &#8211; An Experience Restored in the Third Eye and the Crown Chakra, Part 1
+        //1-1-2011 Gautama Buddha - An Experience Restored in the Third Eye and the Crown Chakra, Part 1
+
+        var parts = urlTitle.Title.Split(' ', 2, StringSplitOptions.TrimEntries);
+        var date = ParseDateOnly(parts[0]);
+        if (date == DateOnly.MinValue)
+        {
+            if (parts[0].StartsWith("121-"))
+            {
+                date = ParseDateOnly(parts[0].Remove(2, 1));
+            }
+            throw new Exception($"Invalid date in title: {urlTitle.Title}");
+        }
+        var authorTitle = parts.Length > 1 ? parts[1] : string.Empty;
+        var (author, title) = Parse(authorTitle);
+        return new Epearl(date, author, title, urlTitle.Url);
+    }
+
+    static DateOnly ParseDateOnly(string text)
+    {
+        return DateOnly.TryParse(text, out DateOnly dateOnly) ? dateOnly : DateOnly.MinValue;
+    }
+
+    static (string author, string title) Parse(string authorTitle)
+    {
+        const string delimeter = "&#8211";
+        const string minus = "-";
+        const string emDash = "—"; // U+2014
+        if (authorTitle.Contains(delimeter)) return Split(delimeter);
+        if (authorTitle.Contains(minus)) return Split(minus);
+        if (authorTitle.Contains(emDash)) return Split(emDash);
+
+        return ("author", "");
+
+        (string author, string title) Split(string delimeter)
+        {
+            var s = authorTitle.Split(delimeter, 2, StringSplitOptions.TrimEntries);
+            return (s[0], s.Length > 1 ? s[1] : "?");
+        }
+    }
 
     // <a href="https://summitlighthouse.org/ePearls-2011/2011-01-01-ePearl.pdf" target="_blank" rel="noopener">
     //1-1-2011 Gautama Buddha – An Experience Restored in the Third Eye and the Crown Chakra, Part 1</a>
 
-    static List<UrlTitle> GetEpearls(string html)
+    static List<UrlTitle> GetUrlTitles(string html)
     {
-        var epearls = new List<UrlTitle>();
+        var urlTitles = new List<UrlTitle>();
 
         var doc = new HtmlDocument();
         doc.LoadHtml(html);
@@ -48,14 +87,16 @@ internal class Downloader
         {
             throw new Exception("No links found");
         }
+
         foreach (var link in links)
         {
             // 1-1-2011 Gautama Buddha – An Experience Restored in the Third Eye and the Crown Chakra, Part 1
             var title = link.InnerText.Trim(); // 
+            Console.WriteLine(title);
             var url = link.GetAttributeValue("href", string.Empty);
-            epearls.Add(new UrlTitle(title, url));
+            urlTitles.Add(new UrlTitle(url, title));
         }
-        return epearls;
+        return urlTitles;
     }
 
 
